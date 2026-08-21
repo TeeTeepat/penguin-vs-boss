@@ -4,3 +4,5 @@ node_modules/
 .data/
 .omc/
 supabase/.temp/
+.vercel
+.env*

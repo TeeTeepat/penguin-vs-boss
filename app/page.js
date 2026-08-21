@@ -4,10 +4,16 @@ import { useEffect, useRef, useState } from "react";
 import {
   MODES,
   MAX_LEVEL,
+  PENGUIN_HP,
+  TOPICS,
+  TOPIC_ORDER,
   heartsForLevel,
-  factKey,
-  factPool,
-  pickFact,
+  levelFor,
+  unlockedOf,
+  playableTopics,
+  nextUnlocked,
+  genQuestion,
+  checkAnswer,
   updateWeak,
   applyAnswer,
 } from "../lib/logic";
@@ -16,6 +22,7 @@ import { sfx, setMuted, isMuted } from "../lib/sound";
 import BattleStage, { BOSS_VARIANTS } from "../components/BattleStage";
 import TablePanel from "../components/TableOverlay";
 import InkPad from "../components/InkPad";
+import { ClockFace, TimeAnswer } from "../components/TimeParts";
 
 const LANG_KEY = "pvb.lang";
 
@@ -58,15 +65,20 @@ export default function Page() {
   const stageRef = useRef(null);
   const timerRef = useRef(null);
 
+  const [topicKey, setTopicKey] = useState("mulFacts");
+  const topicRef = useRef("mulFacts");
+
   const [hearts, setHearts] = useState(0);
   const [maxHearts, setMaxHearts] = useState(0);
+  const [penguinHp, setPenguinHp] = useState(null);
   const [roundMeta, setRoundMeta] = useState(null);
-  const [question, setQuestion] = useState("");
+  const [q, setQ] = useState(null);
   const [qCount, setQCount] = useState(0);
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState(null);
   const [banner, setBanner] = useState(null);
   const [winVisible, setWinVisible] = useState(false);
+  const [loseVisible, setLoseVisible] = useState(false);
   const [tableAllowed, setTableAllowed] = useState(false);
   const [timerVisible, setTimerVisible] = useState(false);
   const [timerPct, setTimerPct] = useState(0);
@@ -174,10 +186,17 @@ export default function Page() {
     try {
       const data = await api(`/api/students/${id}`);
       setStudent(data.student);
-      go("mode");
+      go("topic");
     } catch {
       setError("errLoadStudent");
     }
+  }
+
+  function pickTopic(key) {
+    sfx.tap();
+    topicRef.current = key;
+    setTopicKey(key);
+    go("mode");
   }
 
   async function addStudent() {
@@ -216,6 +235,20 @@ export default function Page() {
     savePatch(id, { min, max });
   }
 
+  function applyUnlocked(id, n) {
+    setTeacherRows((rows) => rows.map((r) => (r.id === id ? { ...r, unlocked: n } : r)));
+    savePatch(id, { unlocked: n });
+  }
+
+  function toggleAllowed(id, key) {
+    const row = teacherRows.find((r) => r.id === id);
+    if (!row) return;
+    const cur = Array.isArray(row.allowed) ? row.allowed : TOPIC_ORDER;
+    const allowed = cur.includes(key) ? cur.filter((k) => k !== key) : [...cur, key];
+    setTeacherRows((rows) => rows.map((r) => (r.id === id ? { ...r, allowed } : r)));
+    savePatch(id, { allowed });
+  }
+
   /* ---- battle ---- */
 
   function startRound(modeKey) {
@@ -224,34 +257,37 @@ export default function Page() {
     if (!st) return;
     if (stageRef.current) stageRef.current.reset();
     const mode = MODES[modeKey];
-    const level = st.levels[modeKey] || 1;
+    const topic = topicRef.current;
+    const level = levelFor(st, topic, modeKey);
     const max = heartsForLevel(level);
     roundRef.current = {
-      modeKey, mode, level,
+      topic, modeKey, mode, level,
       maxHearts: max, hearts: max,
-      fact: null, lastKey: null, busy: false,
+      penguinHp: modeKey === "hard" ? PENGUIN_HP : null,
+      wrongs: 0, q: null, lastKey: null, busy: false,
     };
     setMaxHearts(max);
     setHearts(max);
-    setRoundMeta({ modeKey, level });
+    setPenguinHp(roundRef.current.penguinHp);
+    setRoundMeta({ topic, modeKey, level });
     setWinVisible(false);
+    setLoseVisible(false);
     setBanner(null);
-    setTableAllowed(mode.table);
-    setTimerVisible(!!mode.timer);
+    setTableAllowed(!!(mode.table && TOPICS[topic].table));
+    setTimerVisible(mode.timed);
     setTimerPct(0);
     setError("");
     setScreen("battle");
-    nextFact();
+    nextQuestion();
   }
 
-  function nextFact() {
+  function nextQuestion() {
     const round = roundRef.current;
     const st = currentRef.current;
     if (!round || !st) return;
-    const pool = factPool(st.min, st.max);
-    round.fact = pickFact(pool, st.weak, Math.random, round.lastKey);
-    round.lastKey = factKey(round.fact);
-    setQuestion(`${round.fact.a} x ${round.fact.b} = ?`);
+    round.q = genQuestion(round.topic, st, Math.random, round.lastKey);
+    round.lastKey = round.q.key;
+    setQ(round.q);
     setQCount((c) => c + 1);
     setFeedback(null);
     setHearts(round.hearts);
@@ -262,8 +298,8 @@ export default function Page() {
   function startTimer() {
     clearInterval(timerRef.current);
     const round = roundRef.current;
-    if (!round.mode.timer) return;
-    const total = round.mode.timer * 1000;
+    if (!round.mode.timed) return;
+    const total = TOPICS[round.topic].timer * 1000;
     const deadline = Date.now() + total;
     setTimerPct(100);
     timerRef.current = setInterval(() => {
@@ -276,6 +312,21 @@ export default function Page() {
     }, 100);
   }
 
+  /* "7 × 8 = 56" for text questions; "the answer is …" for time questions. */
+  function solvedText(question) {
+    const lang2 = langRef.current;
+    let ans;
+    if (question.input === "hhmm") {
+      ans = question.fmt === "clock"
+        ? `${question.answer.h}:${String(question.answer.m).padStart(2, "0")}`
+        : t(lang2, "durText", { h: question.answer.h, m: question.answer.m });
+    } else {
+      ans = String(question.answer);
+    }
+    if (question.text) return question.text.replace("?", ans);
+    return t(lang2, "answerIs", { ans });
+  }
+
   async function answer(value) {
     const round = roundRef.current;
     if (!round || round.busy) return;
@@ -283,14 +334,15 @@ export default function Page() {
     setBusy(true);
     clearInterval(timerRef.current);
     const st = currentRef.current;
-    const f = round.fact;
-    const key = factKey(f);
-    const product = f.a * f.b;
-    const correct = value === product;
-    const weak = updateWeak(st.weak, key, correct);
-    setStudent({ ...st, weak });
-    savePatch(st.id, { weak });
-    const vars = { a: f.a, b: f.b, c: product };
+    const question = round.q;
+    const correct = checkAnswer(question, value);
+    const weakKey = TOPICS[round.topic].weakKey;
+    if (weakKey && question.factKey) {
+      const weak = updateWeak(st[weakKey] || {}, question.factKey, correct);
+      setStudent({ ...st, [weakKey]: weak });
+      savePatch(st.id, { [weakKey]: weak });
+    }
+    const vars = { sol: solvedText(question) };
     if (correct) {
       setFeedback({ key: "feedbackHit", vars, cls: "good" });
       round.hearts = applyAnswer(round.hearts, round.maxHearts, true, round.mode.reset);
@@ -299,9 +351,15 @@ export default function Page() {
       await stageRef.current.playAttack();
       if (round.hearts === 0) return winRound();
     } else {
+      round.wrongs += 1;
+      if (round.penguinHp !== null) {
+        round.penguinHp -= 1;
+        setPenguinHp(round.penguinHp);
+      }
       setFeedback({ key: value === null ? "feedbackSlow" : "feedbackMiss", vars, cls: "bad" });
       sfx.hurt();
       await stageRef.current.playHurt();
+      if (round.penguinHp === 0) return loseRound();
       if (round.mode.reset) {
         round.hearts = round.maxHearts;
         setHearts(round.hearts);
@@ -311,7 +369,7 @@ export default function Page() {
     }
     if (!roundRef.current) return;
     round.busy = false;
-    nextFact();
+    nextQuestion();
   }
 
   function winRound() {
@@ -319,13 +377,21 @@ export default function Page() {
     const st = currentRef.current;
     const leveledUp = round.level < MAX_LEVEL;
     const newLevel = Math.min(round.level + 1, MAX_LEVEL);
-    const levels = { ...st.levels, [round.modeKey]: newLevel };
-    setStudent({ ...st, levels });
-    savePatch(st.id, { levels });
+    const levels = { ...st.levels, [`${round.topic}:${round.modeKey}`]: newLevel };
+    const unlocked = nextUnlocked(st, round.topic, round.modeKey, newLevel, round.wrongs);
+    const gotUnlock = unlocked > unlockedOf(st);
+    setStudent({ ...st, levels, unlocked });
+    savePatch(st.id, { levels, unlocked });
     clearInterval(timerRef.current);
-    setQuestion("");
+    setQ(null);
     setWinVisible(true);
-    setBanner(leveledUp ? { key: "bannerLevelUp", vars: { lvl: newLevel } } : { key: "bannerWin" });
+    setBanner(
+      gotUnlock
+        ? { key: "bannerUnlock", vars: { topic: t(langRef.current, `topic_${TOPIC_ORDER[unlocked - 1]}`) } }
+        : leveledUp
+          ? { key: "bannerLevelUp", vars: { lvl: newLevel } }
+          : { key: "bannerWin" }
+    );
     sfx.win();
     stageRef.current.playWin({
       levelUp: leveledUp,
@@ -333,10 +399,26 @@ export default function Page() {
     });
   }
 
+  /* Penguin fainted (Hard only): free retry at the same Level. */
+  function loseRound() {
+    clearInterval(timerRef.current);
+    setQ(null);
+    setLoseVisible(true);
+    setBanner({ key: "bannerLose" });
+    sfx.hurt();
+  }
+
   const sc = (name) => "screen" + (screen === name ? " active" : "");
   const levelNow = roundMeta ? roundMeta.level : 1;
   const levelLabel = roundMeta
-    ? t(lang, "levelLabel", { mode: t(lang, `mode_${roundMeta.modeKey}`), lvl: roundMeta.level })
+    ? `${t(lang, `topic_${roundMeta.topic}`)} · ${t(lang, "levelLabel", { mode: t(lang, `mode_${roundMeta.modeKey}`), lvl: roundMeta.level })}`
+    : "";
+  const questionText = q
+    ? q.text ||
+      t(lang, q.qKey, {
+        ...q.vars,
+        ...(q.vars.from ? { from: t(lang, q.vars.from), to: t(lang, q.vars.to) } : {}),
+      })
     : "";
 
   return (
@@ -366,6 +448,27 @@ export default function Page() {
           <p className="muted">{t(lang, "noStudents")}</p>
         ) : null}
         <button className="ghost" onClick={() => go("teacher")}>{t(lang, "teacher")}</button>
+      </div>
+
+      <div className={sc("topic")}>
+        <h2>{current ? t(lang, "pickTopicNamed", { name: current.name }) : t(lang, "pickTopic")}</h2>
+        <div className="list">
+          {TOPIC_ORDER.map((key) => {
+            const playable = current ? playableTopics(current).includes(key) : false;
+            return (
+              <button
+                key={key}
+                className={playable ? "big" : "big topic-locked"}
+                disabled={!playable}
+                onClick={() => pickTopic(key)}
+              >
+                {t(lang, `topic_${key}`)}
+                {playable ? "" : ` 🔒 ${t(lang, "locked")}`}
+              </button>
+            );
+          })}
+        </div>
+        <button className="ghost" onClick={() => go("pick")}>{t(lang, "back")}</button>
       </div>
 
       <div className={sc("teacher")}>
@@ -410,6 +513,33 @@ export default function Page() {
                   {confirmId === st.id ? t(lang, "confirmRemove") : t(lang, "remove")}
                 </button>
               </div>
+              <div className="row">
+                <span>{t(lang, "unlockedTo")}</span>
+                <select
+                  value={unlockedOf(st)}
+                  onChange={(e) => applyUnlocked(st.id, Number(e.target.value))}
+                >
+                  {TOPIC_ORDER.map((k, i) => (
+                    <option key={k} value={i + 1}>{t(lang, `topic_${k}`)}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="row" style={{ flexWrap: "wrap" }}>
+                <span>{t(lang, "allowedTopics")}</span>
+                {TOPIC_ORDER.map((k) => {
+                  const cur = Array.isArray(st.allowed) ? st.allowed : TOPIC_ORDER;
+                  const on = cur.includes(k);
+                  return (
+                    <button
+                      key={k}
+                      className={on ? "ghost" : "ghost topic-locked"}
+                      onClick={() => toggleAllowed(st.id, k)}
+                    >
+                      {on ? "✅" : "🔒"} {t(lang, `topic_${k}`)}
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           ))}
         </div>
@@ -420,7 +550,7 @@ export default function Page() {
         <h2>{current ? t(lang, "pickModeNamed", { name: current.name }) : t(lang, "pickMode")}</h2>
         <div className="list">
           {Object.keys(MODES).map((key) => {
-            const lvl = (current && current.levels[key]) || 1;
+            const lvl = current ? levelFor(current, topicKey, key) : 1;
             return (
               <button key={key} className="big modecard" onClick={() => startRound(key)}>
                 <b>{t(lang, "modeCard", { mode: t(lang, `mode_${key}`), lvl })}</b>
@@ -431,7 +561,7 @@ export default function Page() {
             );
           })}
         </div>
-        <button className="ghost" onClick={() => go("pick")}>{t(lang, "back")}</button>
+        <button className="ghost" onClick={() => go("topic")}>{t(lang, "back")}</button>
       </div>
 
       <div className={sc("battle")}>
@@ -446,31 +576,54 @@ export default function Page() {
           timerVisible={timerVisible}
           timerPct={timerPct}
         />
-        <div className="question">{question}</div>
-        {!winVisible ? (
-          <InkPad
-            key={qCount}
-            onAnswer={answer}
-            disabled={busy}
-            labels={{
-              clear: t(lang, "clear"),
-              attack: t(lang, "attack"),
-              write: t(lang, "write"),
-              pad: t(lang, "pad"),
-            }}
-          />
+        {penguinHp !== null && !winVisible && !loseVisible ? (
+          <div className="penguin-hp">
+            {t(lang, "penguinHp")} {"❤️".repeat(Math.max(penguinHp, 0)) || "💔"}
+          </div>
+        ) : null}
+        <div className="question">{questionText}</div>
+        {q && q.clock ? (
+          <div className="row" style={{ justifyContent: "center" }}>
+            <ClockFace h={q.clock.h} m={q.clock.m} />
+          </div>
+        ) : null}
+        {!winVisible && !loseVisible && q ? (
+          q.input === "hhmm" ? (
+            <TimeAnswer
+              key={qCount}
+              onAnswer={answer}
+              disabled={busy}
+              labels={{
+                attack: t(lang, "attack"),
+                hourShort: t(lang, "hourShort"),
+                minShort: t(lang, "minShort"),
+              }}
+            />
+          ) : (
+            <InkPad
+              key={qCount}
+              onAnswer={answer}
+              disabled={busy}
+              labels={{
+                clear: t(lang, "clear"),
+                attack: t(lang, "attack"),
+                write: t(lang, "write"),
+                pad: t(lang, "pad"),
+              }}
+            />
+          )
         ) : null}
         <div className={feedback ? `feedback ${feedback.cls}` : "feedback"}>
           {feedback ? t(lang, feedback.key, feedback.vars) : ""}
         </div>
-        {winVisible ? (
+        {winVisible || loseVisible ? (
           <div className="row">
             <button
               className="big"
               style={{ width: "auto" }}
               onClick={() => startRound(roundRef.current.modeKey)}
             >
-              {t(lang, "nextBoss")}
+              {t(lang, loseVisible ? "retry" : "nextBoss")}
             </button>
             <button className="ghost" onClick={() => go("mode")}>{t(lang, "changeMode")}</button>
             <button className="ghost" onClick={() => go("pick")}>{t(lang, "home")}</button>

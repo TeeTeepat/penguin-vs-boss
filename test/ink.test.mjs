@@ -96,3 +96,32 @@ test("recognizeNumber returns null value for no ink", () => {
   assert.equal(result.value, null);
   assert.deepEqual(result.digits, []);
 });
+
+test("segmentation splits digits written close together (18px gap)", () => {
+  const seven = TEMPLATES.find((t) => t.digit === 7).strokes;
+  const two = TEMPLATES.find((t) => t.digit === 2).strokes;
+  // seven spans x 15..75, two starts at x 20; shift so the gap is 18px.
+  const strokes = [...seven, ...shifted(two, 75 + 18 - 20)];
+  const result = recognizeNumber(strokes);
+  assert.equal(result.value, 72);
+});
+
+test("a narrow 1 beside a 0 stays two digits", () => {
+  const one = TEMPLATES.find((t) => t.digit === 1).strokes; // x 50..50
+  const zero = TEMPLATES.find((t) => t.digit === 0).strokes; // x 20..80
+  const strokes = [...one, ...shifted(zero, 50)]; // gap 20px
+  const result = recognizeNumber(strokes);
+  assert.equal(result.value, 10);
+});
+
+test("a stray dot beside a digit is ignored", () => {
+  const six = TEMPLATES.find((t) => t.digit === 6).strokes;
+  const dot = [[{ x: 130, y: 50 }, { x: 132, y: 52 }]];
+  const result = recognizeNumber([...six, ...dot]);
+  assert.equal(result.value, 6);
+});
+
+test("a lone dot is not a digit", () => {
+  const result = recognizeNumber([[{ x: 10, y: 10 }, { x: 12, y: 11 }]]);
+  assert.equal(result.value, null);
+});

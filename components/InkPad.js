@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { recognizeNumber } from "../lib/ink";
 
-const AUTO_SUBMIT_MS = 1000;
 const INK_WIDTH = 6;
 const PAD_KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
 
@@ -15,7 +14,8 @@ export default function InkPad({ onAnswer, disabled, labels }) {
   const canvasRef = useRef(null);
   const strokesRef = useRef([]);
   const activeStrokeRef = useRef(null);
-  const timerRef = useRef(null);
+  const activePointerRef = useRef(null);
+  const rectRef = useRef(null);
   const submittedRef = useRef(false);
   const prevDisabledRef = useRef(disabled);
   const [preview, setPreview] = useState("");
@@ -47,31 +47,25 @@ export default function InkPad({ onAnswer, disabled, labels }) {
     }
   }, []);
 
-  const clearTimer = useCallback(() => {
-    if (timerRef.current) {
-      clearTimeout(timerRef.current);
-      timerRef.current = null;
-    }
-  }, []);
-
   const clearInk = useCallback(() => {
-    clearTimer();
     strokesRef.current = [];
     activeStrokeRef.current = null;
+    activePointerRef.current = null;
     submittedRef.current = false;
     setPreview("");
     redraw();
-  }, [clearTimer, redraw]);
+  }, [redraw]);
 
   // Size the drawing buffer to the on-screen box, crisp on retina.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return undefined;
     const fit = () => {
-      const rect = canvas.getBoundingClientRect();
+      // clientWidth/Height exclude the dashed border; sizing the bitmap from
+      // the border box would stretch it and offset the ink from the pen.
       const dpr = window.devicePixelRatio || 1;
-      canvas.width = Math.round(rect.width * dpr);
-      canvas.height = Math.round(rect.height * dpr);
+      canvas.width = Math.round(canvas.clientWidth * dpr);
+      canvas.height = Math.round(canvas.clientHeight * dpr);
       const ctx = canvas.getContext("2d");
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       redraw();
@@ -91,50 +85,77 @@ export default function InkPad({ onAnswer, disabled, labels }) {
     prevDisabledRef.current = disabled;
   }, [disabled, clearInk]);
 
-  useEffect(() => clearTimer, [clearTimer]);
-
-  const scheduleSubmit = useCallback(() => {
-    clearTimer();
+  const updatePreview = useCallback(() => {
     const { value } = recognizeNumber(strokesRef.current);
     setPreview(value === null ? "" : String(value));
-    if (value === null) return;
-    timerRef.current = setTimeout(() => {
-      if (submittedRef.current) return;
-      const result = recognizeNumber(strokesRef.current);
-      if (result.value === null) return;
-      submittedRef.current = true;
-      onAnswer(result.value);
-    }, AUTO_SUBMIT_MS);
-  }, [clearTimer, onAnswer]);
+  }, []);
 
   const pointFromEvent = (e) => {
-    const rect = canvasRef.current.getBoundingClientRect();
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top };
+    const rect = rectRef.current;
+    const canvas = canvasRef.current;
+    return {
+      x: e.clientX - rect.left - canvas.clientLeft,
+      y: e.clientY - rect.top - canvas.clientTop,
+    };
   };
 
+  // Append only the newest segment; full redraws happen on end/clear/resize.
+  const drawSegment = (from, to) => {
+    const ctx = canvasRef.current.getContext("2d");
+    ctx.lineWidth = INK_WIDTH;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#1c1c28";
+    ctx.beginPath();
+    ctx.moveTo(from.x, from.y);
+    ctx.lineTo(to.x + (from === to ? 0.1 : 0), to.y);
+    ctx.stroke();
+  };
+
+  // Single-pointer: a palm or second finger landing mid-stroke is ignored
+  // instead of hijacking the stroke in progress.
   const handlePointerDown = (e) => {
     if (disabled || submittedRef.current) return;
+    if (activePointerRef.current !== null) return;
     e.preventDefault();
-    clearTimer();
     canvasRef.current.setPointerCapture(e.pointerId);
-    activeStrokeRef.current = [pointFromEvent(e)];
-    redraw();
+    activePointerRef.current = e.pointerId;
+    rectRef.current = canvasRef.current.getBoundingClientRect();
+    const p = pointFromEvent(e);
+    activeStrokeRef.current = [p];
+    drawSegment(p, p);
   };
 
   const handlePointerMove = (e) => {
-    if (!activeStrokeRef.current) return;
+    if (e.pointerId !== activePointerRef.current) return;
+    const stroke = activeStrokeRef.current;
+    if (!stroke) return;
     e.preventDefault();
-    activeStrokeRef.current.push(pointFromEvent(e));
-    redraw();
+    const events = e.nativeEvent.getCoalescedEvents?.() ?? [e];
+    for (const ev of events) {
+      const p = pointFromEvent(ev);
+      drawSegment(stroke[stroke.length - 1], p);
+      stroke.push(p);
+    }
   };
 
   const handlePointerEnd = (e) => {
+    if (e.pointerId !== activePointerRef.current) return;
     if (!activeStrokeRef.current) return;
     e.preventDefault();
     strokesRef.current = [...strokesRef.current, activeStrokeRef.current];
     activeStrokeRef.current = null;
+    activePointerRef.current = null;
     redraw();
-    scheduleSubmit();
+    updatePreview();
+  };
+
+  const attackInk = () => {
+    if (disabled || submittedRef.current) return;
+    const { value } = recognizeNumber(strokesRef.current);
+    if (value === null) return;
+    submittedRef.current = true;
+    onAnswer(value);
   };
 
   const switchMode = () => {
@@ -148,7 +169,8 @@ export default function InkPad({ onAnswer, disabled, labels }) {
 
   const pressKey = (key) => {
     if (disabled) return;
-    setTyped((t) => (t.length >= 3 ? t : t + key));
+    /* 6 digits covers the biggest answer (999 × 999 = 998001). */
+    setTyped((t) => (t.length >= 6 ? t : t + key));
   };
 
   const attack = () => {
@@ -204,7 +226,15 @@ export default function InkPad({ onAnswer, disabled, labels }) {
       <canvas
         ref={canvasRef}
         className="inkcanvas"
-        style={{ touchAction: "none", width: "100%", height: "220px", display: "block" }}
+        style={{
+          touchAction: "none",
+          userSelect: "none",
+          WebkitUserSelect: "none",
+          WebkitTouchCallout: "none",
+          width: "100%",
+          height: "220px",
+          display: "block",
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerEnd}
@@ -218,6 +248,14 @@ export default function InkPad({ onAnswer, disabled, labels }) {
           onClick={clearInk}
         >
           {labels.clear}
+        </button>
+        <button
+          type="button"
+          className="inkpad-key inkpad-key-attack"
+          disabled={disabled || preview === ""}
+          onClick={attackInk}
+        >
+          {labels.attack}
         </button>
         <button type="button" className="inkpad-toggle" onClick={switchMode}>
           {labels.pad}

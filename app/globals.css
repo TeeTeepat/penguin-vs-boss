@@ -261,3 +261,19 @@ input, select {
 }
 .shake { animation: screen-shake .35s linear; }
 .flash { animation: hit-flash .25s linear; }
+
+/* hh:mm answer boxes (time topic) */
+.timebox {
+  width: 72px;
+  font-size: 1.6rem;
+  text-align: center;
+}
+.penguin-hp {
+  font-size: 1.2rem;
+  text-align: center;
+  margin: 4px 0;
+}
+.topic-locked {
+  opacity: 0.45;
+  filter: grayscale(1);
+}

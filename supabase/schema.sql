@@ -6,5 +6,8 @@ create table if not exists students (
   min int not null default 2,
   max int not null default 12,
   levels jsonb not null default '{}'::jsonb,
-  weak jsonb not null default '{}'::jsonb
+  weak jsonb not null default '{}'::jsonb,
+  "weakDiv" jsonb not null default '{}'::jsonb,
+  unlocked int not null default 1,
+  allowed jsonb
 );
