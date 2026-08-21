@@ -436,6 +436,25 @@ const BattleStage = forwardRef(function BattleStage(props, ref) {
     });
   }
 
+  /* Penguin faints: shake, eyes shut, tip over, dim. Persists (like playWin's
+     boss defeat) until reset() — the lose screen stays on it. */
+  function playDie() {
+    const g = rig.current;
+    if (!g) return Promise.resolve();
+    stopIdle();
+    const { r } = g;
+    return new Promise((resolve) => {
+      const tl = gsap.timeline({ onComplete: resolve })
+        .to(r.pChar, { x: "+=3", duration: 0.06, yoyo: true, repeat: 7 })
+        .to(r.pEyeRects, { scaleY: 0.12, transformOrigin: "center", duration: 0.12 }, 0)
+        .to(r.pChar, { rotation: 86, svgOrigin: "60 96", duration: 0.55, ease: "power3.in", delay: 0.1 })
+        .to(r.pChar, { rotation: 80, duration: 0.1 })
+        .to(r.pChar, { rotation: 86, duration: 0.12 })
+        .to(r.pChar, { opacity: 0.55, duration: 0.5 });
+      g.winTls.push(tl);
+    });
+  }
+
   function reset() {
     killWin();
     const g = rig.current;
@@ -446,7 +465,7 @@ const BattleStage = forwardRef(function BattleStage(props, ref) {
     startIdle();
   }
 
-  useImperativeHandle(ref, () => ({ playAttack, playHurt, playRecover, playWin, reset }));
+  useImperativeHandle(ref, () => ({ playAttack, playHurt, playRecover, playWin, playDie, reset }));
 
   return (
     <div className="stage">

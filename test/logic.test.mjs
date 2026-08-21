@@ -187,6 +187,21 @@ test("checkAnswer: numbers and hh:mm pairs; null/timeout is wrong", () => {
   assert.ok(!checkAnswer(hm, null));
 });
 
+test("mix draws only from playable topics, tags source topic, keeps weak keys", () => {
+  const rng = makeRng(21);
+  const st = { min: 2, max: 12, weak: {}, weakDiv: {}, unlocked: 6, allowed: null, levels: {} };
+  const open = playableTopics(st);
+  const seen = new Set();
+  for (let i = 0; i < 400; i++) {
+    const q = genQuestion("mix", st, rng);
+    assert.ok(open.includes(q.topic), `mix drew locked topic ${q.topic}`);
+    seen.add(q.topic);
+    if (q.topic === "mulFacts") assert.equal(q.weakKey, "weak");
+    if (q.topic === "div") assert.equal(q.weakKey, "weakDiv");
+  }
+  assert.ok(seen.size >= 4, `mix not varied: ${[...seen]}`);
+});
+
 test("mulFacts uses weak pool from st.weak, div from st.weakDiv", () => {
   const rng = makeRng(3);
   const st = { min: 6, max: 6, weak: { "6x9": { streak: 0 } }, weakDiv: { "6x4": { streak: 0 } } };

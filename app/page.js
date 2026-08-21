@@ -23,6 +23,7 @@ import BattleStage, { BOSS_VARIANTS } from "../components/BattleStage";
 import TablePanel from "../components/TableOverlay";
 import InkPad from "../components/InkPad";
 import { ClockFace, TimeAnswer } from "../components/TimeParts";
+import { LockIcon, CheckIcon, HeartIcon } from "../components/Icons";
 
 const LANG_KEY = "pvb.lang";
 
@@ -299,7 +300,8 @@ export default function Page() {
     clearInterval(timerRef.current);
     const round = roundRef.current;
     if (!round.mode.timed) return;
-    const total = TOPICS[round.topic].timer * 1000;
+    /* Mix rounds: the timer follows the drawn question's source topic. */
+    const total = TOPICS[(round.q && round.q.topic) || round.topic].timer * 1000;
     const deadline = Date.now() + total;
     setTimerPct(100);
     timerRef.current = setInterval(() => {
@@ -336,7 +338,7 @@ export default function Page() {
     const st = currentRef.current;
     const question = round.q;
     const correct = checkAnswer(question, value);
-    const weakKey = TOPICS[round.topic].weakKey;
+    const weakKey = question.weakKey;
     if (weakKey && question.factKey) {
       const weak = updateWeak(st[weakKey] || {}, question.factKey, correct);
       setStudent({ ...st, [weakKey]: weak });
@@ -406,6 +408,7 @@ export default function Page() {
     setLoseVisible(true);
     setBanner({ key: "bannerLose" });
     sfx.hurt();
+    stageRef.current.playDie();
   }
 
   const sc = (name) => "screen" + (screen === name ? " active" : "");
@@ -463,10 +466,13 @@ export default function Page() {
                 onClick={() => pickTopic(key)}
               >
                 {t(lang, `topic_${key}`)}
-                {playable ? "" : ` 🔒 ${t(lang, "locked")}`}
+                {playable ? null : <> <LockIcon /> {t(lang, "locked")}</>}
               </button>
             );
           })}
+          <button className="big" onClick={() => pickTopic("mix")}>
+            {t(lang, "topic_mix")}
+          </button>
         </div>
         <button className="ghost" onClick={() => go("pick")}>{t(lang, "back")}</button>
       </div>
@@ -535,7 +541,7 @@ export default function Page() {
                       className={on ? "ghost" : "ghost topic-locked"}
                       onClick={() => toggleAllowed(st.id, k)}
                     >
-                      {on ? "✅" : "🔒"} {t(lang, `topic_${k}`)}
+                      {on ? <CheckIcon /> : <LockIcon />} {t(lang, `topic_${k}`)}
                     </button>
                   );
                 })}
@@ -578,7 +584,10 @@ export default function Page() {
         />
         {penguinHp !== null && !winVisible && !loseVisible ? (
           <div className="penguin-hp">
-            {t(lang, "penguinHp")} {"❤️".repeat(Math.max(penguinHp, 0)) || "💔"}
+            {t(lang, "penguinHp")}{" "}
+            {Array.from({ length: PENGUIN_HP }, (_, i) => (
+              <HeartIcon key={i} dim={i >= penguinHp} />
+            ))}
           </div>
         ) : null}
         <div className="question">{questionText}</div>
