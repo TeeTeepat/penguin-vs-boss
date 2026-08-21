@@ -1,0 +1,386 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Penguin vs Boss — mascot rigs</title>
+<style>
+  * { margin: 0; box-sizing: border-box; }
+  body {
+    background: #f5f0e8; color: #1a1a18;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; padding: 2.5rem 1rem; gap: 1.5rem;
+  }
+  nav { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; }
+  nav button {
+    font: inherit; font-size: .8rem; padding: .45rem .9rem;
+    border: 1.5px solid #1a1a18; border-radius: 999px;
+    background: transparent; cursor: pointer;
+  }
+  nav button.active { background: #1a1a18; color: #f5f0e8; }
+  #stage {
+    width: min(720px, 94vw); height: 400px; background: #fffdf9;
+    border: 1.5px solid #1a1a18; border-radius: 14px;
+    position: relative; overflow: hidden;
+  }
+  #stage::after {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 96px;
+    border-bottom: 1.5px dashed #d8cfbe;
+  }
+  .scene {
+    position: absolute; inset: 0; display: none;
+    align-items: flex-end; justify-content: center; padding-bottom: 96px;
+  }
+  .scene.active { display: flex; }
+  .scene svg { width: min(600px, 86vw); overflow: visible; shape-rendering: crispEdges; }
+</style>
+</head>
+<body>
+  <nav>
+    <button data-scene="idle">idle</button>
+    <button data-scene="attack">penguin attack</button>
+    <button data-scene="hurt">boss attack</button>
+    <button data-scene="recover">boss recover</button>
+    <button data-scene="win">victory</button>
+  </nav>
+  <div id="stage"></div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script>
+    /* ---- battle rig: small penguin (left) vs big boss (right), rects only ---- */
+    const BATTLE = (id) => `
+    <svg viewBox="0 0 240 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <clipPath id="ground-${id}">
+          <rect x="-40" y="-80" width="320" height="176" />
+        </clipPath>
+      </defs>
+
+      <g data-part="p-char">
+        <g clip-path="url(#ground-${id})">
+          <rect data-part="p-leg1" x="28" y="86" width="8" height="10" fill="#F2A03D" />
+          <rect data-part="p-leg2" x="44" y="86" width="8" height="10" fill="#F2A03D" />
+        </g>
+        <g data-part="p-body">
+          <rect data-part="p-torso" x="20" y="44" width="40" height="46" fill="#16161E" />
+          <rect x="29" y="64" width="22" height="26" fill="#F5F0E8" />
+          <rect data-part="p-left-hand" x="12" y="60" width="8" height="20" fill="#16161E" />
+          <rect data-part="p-right-hand" x="60" y="60" width="8" height="20" fill="#16161E" />
+          <rect x="26" y="49" width="10" height="10" fill="#FFFFFF" />
+          <rect x="44" y="49" width="10" height="10" fill="#FFFFFF" />
+          <g data-part="p-eyes">
+            <rect data-part="p-eye1" x="29" y="52" width="5" height="5" fill="#16161E" />
+            <rect data-part="p-eye2" x="47" y="52" width="5" height="5" fill="#16161E" />
+          </g>
+          <rect data-part="p-beak" x="35" y="60" width="10" height="6" fill="#F2A03D" />
+        </g>
+      </g>
+
+      <g data-part="b-char">
+        <g clip-path="url(#ground-${id})">
+          <rect data-part="b-leg1" x="160" y="78" width="14" height="18" fill="#3A2455" />
+          <rect data-part="b-leg2" x="196" y="78" width="14" height="18" fill="#3A2455" />
+        </g>
+        <g data-part="b-body">
+          <rect x="150" y="0" width="12" height="20" fill="#3A2455" />
+          <rect x="208" y="0" width="12" height="20" fill="#3A2455" />
+          <rect data-part="b-torso" x="150" y="12" width="70" height="70" fill="#7C4DBE" />
+          <rect data-part="b-left-hand" x="138" y="38" width="12" height="26" fill="#7C4DBE" />
+          <rect data-part="b-right-hand" x="220" y="38" width="12" height="26" fill="#7C4DBE" />
+          <g data-part="b-brows">
+            <rect x="160" y="22" width="16" height="6" fill="#3A2455" />
+            <rect x="194" y="22" width="16" height="6" fill="#3A2455" />
+          </g>
+          <rect x="161" y="30" width="14" height="10" fill="#FFFFFF" />
+          <rect x="195" y="30" width="14" height="10" fill="#FFFFFF" />
+          <g data-part="b-eyes">
+            <rect data-part="b-eye1" x="163" y="32" width="7" height="6" fill="#16161E" />
+            <rect data-part="b-eye2" x="197" y="32" width="7" height="6" fill="#16161E" />
+          </g>
+          <g data-part="b-mouth">
+            <rect x="174" y="56" width="22" height="10" fill="#3A2455" />
+            <rect x="177" y="56" width="5" height="4" fill="#FFFFFF" />
+            <rect x="188" y="56" width="5" height="4" fill="#FFFFFF" />
+          </g>
+        </g>
+        <g data-part="b-heal">
+          <rect x="156" y="74" width="5" height="5" fill="#5DBB74" opacity="0" />
+          <rect x="176" y="70" width="5" height="5" fill="#5DBB74" opacity="0" />
+          <rect x="198" y="73" width="5" height="5" fill="#5DBB74" opacity="0" />
+          <rect x="214" y="68" width="5" height="5" fill="#5DBB74" opacity="0" />
+        </g>
+      </g>
+
+      <g data-part="confetti"></g>
+    </svg>`;
+
+    const P_PIVOT = "40 90", B_PIVOT = "185 82";
+    const P_LEG_X = [32, 48], GROUND = 96;
+    const EYE_ROW_Y = 54.5;
+
+    const q = (s, n) => s.querySelector(`[data-part="${n}"]`);
+    const rig = (s) => ({
+      pChar: q(s, "p-char"), pBody: q(s, "p-body"), pEyes: q(s, "p-eyes"),
+      pEyeRects: [q(s, "p-eye1"), q(s, "p-eye2")],
+      pLegs: [q(s, "p-leg1"), q(s, "p-leg2")],
+      pLh: q(s, "p-left-hand"), pRh: q(s, "p-right-hand"), pBeak: q(s, "p-beak"),
+      bChar: q(s, "b-char"), bBody: q(s, "b-body"), bEyes: q(s, "b-eyes"),
+      bTorso: q(s, "b-torso"),
+      bLegs: [q(s, "b-leg1"), q(s, "b-leg2")],
+      bLh: q(s, "b-left-hand"), bRh: q(s, "b-right-hand"),
+      bBrows: q(s, "b-brows"), bMouth: q(s, "b-mouth"),
+      bHeal: [...q(s, "b-heal").children],
+    });
+    const setPupilOrigins = (r) => r.pEyeRects.forEach((e) =>
+      gsap.set(e, { svgOrigin: `${+e.getAttribute("x") + 2.5} ${EYE_ROW_Y}` }));
+
+    /* penguin idle loops, reused by several scenes */
+    function penguinIdle(r) {
+      const breathe = gsap.timeline({ repeat: -1, yoyo: true })
+        .to(r.pBody, { scaleY: 1.03, svgOrigin: P_PIVOT, duration: 1.4, ease: "sine.inOut" })
+        .to([r.pLh, r.pRh], { y: -1.2, duration: 1.4, ease: "sine.inOut" }, "<");
+      setPupilOrigins(r);
+      const blink = gsap.timeline({ repeat: -1, repeatDelay: 2.4 })
+        .to(r.pEyeRects, { scaleY: 0.15, duration: 0.07, ease: "power2.in" })
+        .to(r.pEyeRects, { scaleY: 1, duration: 0.09, ease: "power2.out" })
+        .to(r.pEyeRects, { scaleY: 0.15, duration: 0.07, ease: "power2.in", delay: 0.18 })
+        .to(r.pEyeRects, { scaleY: 1, duration: 0.09, ease: "power2.out" });
+      const gaze = gsap.timeline({ repeat: -1, repeatDelay: 1.7 })
+        .to(r.pEyes, { x: 2.5, duration: 0.25, ease: "power2.out", delay: 0.8 })
+        .to(r.pEyes, { x: -2.5, duration: 0.3, ease: "power2.inOut", delay: 1.2 })
+        .to(r.pEyes, { x: 0, duration: 0.25, ease: "power2.out", delay: 0.9 });
+      return [breathe, blink, gaze];
+    }
+
+    /* boss idle loops: heavier, slower, menacing */
+    function bossIdle(r) {
+      const bob = gsap.timeline({ repeat: -1, yoyo: true })
+        .to(r.bBody, { y: -3, scaleY: 1.02, svgOrigin: B_PIVOT, duration: 1.9, ease: "sine.inOut" })
+        .to([r.bLh, r.bRh], { y: -4, duration: 1.9, ease: "sine.inOut" }, "<");
+      const glare = gsap.timeline({ repeat: -1, repeatDelay: 2.6 })
+        .to(r.bBrows, { y: 3, duration: 0.2, ease: "power2.in", delay: 1.1 })
+        .to(r.bEyes, { x: -3, duration: 0.25, ease: "power2.out" }, "<")
+        .to(r.bBrows, { y: 0, duration: 0.3, ease: "power2.out", delay: 1.4 })
+        .to(r.bEyes, { x: 0, duration: 0.3, ease: "power2.out" }, "<");
+      return [bob, glare];
+    }
+
+    function idleScene(s) {
+      const r = rig(s);
+      return [...penguinIdle(r), ...bossIdle(r)];
+    }
+
+    /* penguin lunges, slaps boss; boss flashes + knockback */
+    function attackScene(s) {
+      const r = rig(s);
+      gsap.set(r.pRh, { svgOrigin: "60 60" });
+      const tl = gsap.timeline({ repeat: -1, repeatDelay: 1.1 })
+        // anticipation: lean back, eye boss
+        .to(r.pEyes, { x: 2.5, duration: 0.3, ease: "power2.out" })
+        .to(r.pBody, { rotation: -7, x: -5, svgOrigin: P_PIVOT, duration: 0.3, ease: "power2.out" }, "<")
+        .to(r.pRh, { y: -12, rotation: 28, duration: 0.3, ease: "power2.out" }, "<")
+        // lunge
+        .addLabel("go")
+        .to(r.pChar, { x: 64, duration: 0.22, ease: "power3.in" }, "go")
+        .to(r.pBody, { rotation: 6, x: 0, duration: 0.22, ease: "power3.in" }, "go")
+        // slap on contact
+        .addLabel("hit")
+        .to(r.pRh, { rotation: -34, duration: 0.1, ease: "power4.in" }, "hit")
+        .to(r.bChar, { x: 10, duration: 0.12, ease: "power3.out" }, "hit")
+        .to(r.bBody, { rotation: 4, svgOrigin: B_PIVOT, duration: 0.12, ease: "power3.out" }, "hit")
+        .to(r.bChar, { opacity: 0.25, duration: 0.06, yoyo: true, repeat: 3, ease: "none" }, "hit")
+        .to(r.bBrows, { y: -3, duration: 0.1, ease: "power2.out" }, "hit")
+        // recover
+        .to(r.bChar, { x: 0, duration: 0.4, ease: "power2.inOut", delay: 0.25 })
+        .to(r.bBody, { rotation: 0, duration: 0.4, ease: "power2.inOut" }, "<")
+        .to(r.bBrows, { y: 0, duration: 0.3, ease: "power2.out" }, "<")
+        .to(r.pChar, { x: 0, duration: 0.35, ease: "power2.inOut" }, "<")
+        .to(r.pBody, { rotation: 0, duration: 0.35, ease: "power2.out" }, "<")
+        .to(r.pRh, { y: 0, rotation: 0, duration: 0.3, ease: "power2.out" }, "<")
+        .to(r.pEyes, { x: 0, duration: 0.25, ease: "power2.out" }, "<")
+        .call(() => gsap.set([r.pChar, r.bChar], { x: 0 }));
+      return [tl];
+    }
+
+    /* boss lunges; penguin knocked back, squints, sad settle */
+    function hurtScene(s) {
+      const r = rig(s);
+      gsap.set(r.bLh, { svgOrigin: "150 38" });
+      setPupilOrigins(r);
+      const tl = gsap.timeline({ repeat: -1, repeatDelay: 1.2 })
+        // anticipation: boss rears up, brows down
+        .to(r.bBody, { rotation: 6, x: 6, y: -4, svgOrigin: B_PIVOT, duration: 0.35, ease: "power2.out" })
+        .to(r.bBrows, { y: 3, duration: 0.35, ease: "power2.out" }, "<")
+        .to(r.bLh, { y: -16, rotation: -30, duration: 0.35, ease: "power2.out" }, "<")
+        .to(r.pEyes, { x: 2.5, duration: 0.3, ease: "power2.out" }, "<")
+        // lunge
+        .addLabel("go")
+        .to(r.bChar, { x: -64, duration: 0.22, ease: "power3.in" }, "go")
+        .to(r.bBody, { rotation: -4, x: 0, y: 0, duration: 0.22, ease: "power3.in" }, "go")
+        // impact on penguin
+        .addLabel("hit")
+        .to(r.bLh, { rotation: 26, duration: 0.1, ease: "power4.in" }, "hit")
+        .to(r.pChar, { x: -12, duration: 0.14, ease: "power3.out" }, "hit")
+        .to(r.pBody, { rotation: -9, svgOrigin: P_PIVOT, duration: 0.14, ease: "power3.out" }, "hit")
+        .to(r.pEyeRects, { scaleY: 0.2, duration: 0.08, ease: "power2.in" }, "hit")
+        .to([r.pLh, r.pRh], { y: -6, rotation: -12, duration: 0.14, ease: "power3.out" }, "hit")
+        // boss retreats, penguin sad settle
+        .to(r.bChar, { x: 0, duration: 0.45, ease: "power2.inOut", delay: 0.2 })
+        .to(r.bBody, { rotation: 0, duration: 0.45, ease: "power2.inOut" }, "<")
+        .to(r.bBrows, { y: 0, duration: 0.3, ease: "power2.out" }, "<")
+        .to(r.bLh, { y: 0, rotation: 0, duration: 0.3, ease: "power2.out" }, "<")
+        .to(r.pChar, { x: 0, duration: 0.4, ease: "power2.inOut" }, "<")
+        .to(r.pBody, { rotation: 0, y: 2, duration: 0.4, ease: "power2.out" }, "<")
+        .to([r.pLh, r.pRh], { y: 2, rotation: 0, duration: 0.4, ease: "power2.out" }, "<")
+        .to(r.pEyeRects, { scaleY: 1, duration: 0.2, ease: "power2.out" }, "<")
+        .to(r.pEyes, { x: 0, y: 2, duration: 0.3, ease: "power2.out" }, "<+=0.1")
+        // shake it off
+        .to(r.pBody, { y: 0, duration: 0.25, ease: "power2.out", delay: 0.5 })
+        .to([r.pLh, r.pRh], { y: 0, duration: 0.25, ease: "power2.out" }, "<")
+        .to(r.pEyes, { y: 0, duration: 0.25, ease: "power2.out" }, "<")
+        .call(() => gsap.set([r.pChar, r.bChar], { x: 0 }));
+      return [tl];
+    }
+
+    /* boss heals back to full: crouch-charge, puff up, green sparkles, roar */
+    function recoverScene(s) {
+      const r = rig(s);
+      const fills = [r.bTorso, r.bLh, r.bRh];
+      const tl = gsap.timeline({ repeat: -1, repeatDelay: 1.5 })
+        // charge: crouch, brows down, mouth shut tight
+        .to(r.bBrows, { y: 3, duration: 0.25, ease: "power2.in" })
+        .to(r.bBody, { y: 4, scaleY: 0.94, svgOrigin: B_PIVOT, duration: 0.3, ease: "power2.in" }, "<")
+        .to([r.bLh, r.bRh], { y: 5, duration: 0.3, ease: "power2.in" }, "<")
+        // burst: puff up, arms flex, glow, sparkles rise
+        .addLabel("burst")
+        .to(r.bBody, { y: -6, scaleY: 1.12, duration: 0.22, ease: "power3.out" }, "burst")
+        .to([r.bLh, r.bRh], { y: -14, duration: 0.22, ease: "power3.out" }, "burst")
+        .to(r.bMouth, { scaleY: 1.7, svgOrigin: "185 61", duration: 0.2, ease: "power2.out" }, "burst")
+        .to(fills, { attr: { fill: "#A585DC" }, duration: 0.18, yoyo: true, repeat: 3, ease: "none" }, "burst")
+        .to(r.bHeal, { y: -30, opacity: 1, duration: 0.55, stagger: 0.09, ease: "sine.out" }, "burst")
+        .to(r.bHeal, { opacity: 0, duration: 0.22, stagger: 0.09 }, "burst+=0.4")
+        // penguin flinches at the roar
+        .to(r.pBody, { rotation: -5, x: -3, svgOrigin: P_PIVOT, duration: 0.2, ease: "power2.out" }, "burst")
+        .to(r.pEyes, { x: 2.5, duration: 0.2, ease: "power2.out" }, "burst")
+        // settle
+        .to(r.bBody, { y: 0, scaleY: 1, duration: 0.35, ease: "power2.inOut", delay: 0.35 })
+        .to([r.bLh, r.bRh], { y: 0, duration: 0.35, ease: "power2.inOut" }, "<")
+        .to(r.bMouth, { scaleY: 1, duration: 0.25, ease: "power2.in" }, "<")
+        .to(r.bBrows, { y: 0, duration: 0.3, ease: "power2.out" }, "<")
+        .to(r.pBody, { rotation: 0, x: 0, duration: 0.3, ease: "power2.out" }, "<")
+        .to(r.pEyes, { x: 0, duration: 0.25, ease: "power2.out" }, "<")
+        .set(r.bHeal, { y: 0 });
+      return [tl];
+    }
+
+    /* confetti burst ("paper shoot"): small colored rects fired up from the penguin */
+    function spawnConfetti(s) {
+      const group = q(s, "confetti");
+      group.innerHTML = "";
+      const COLORS = ["#F2A03D", "#E5533C", "#5DBB74", "#3B7BD6", "#7C4DBE"];
+      const NS = "http://www.w3.org/2000/svg";
+      const tls = [];
+      for (let i = 0; i < 26; i++) {
+        const rect = document.createElementNS(NS, "rect");
+        const sz = 3 + Math.random() * 3;
+        rect.setAttribute("x", 42); rect.setAttribute("y", 54);
+        rect.setAttribute("width", sz); rect.setAttribute("height", sz);
+        rect.setAttribute("fill", COLORS[i % COLORS.length]);
+        rect.setAttribute("opacity", "0");
+        group.appendChild(rect);
+        const dx = (Math.random() * 2 - 0.55) * 95;   // burst mostly rightward across the stage
+        const upY = -(28 + Math.random() * 48);
+        const up = 0.45 + Math.random() * 0.3;
+        const tl = gsap.timeline({ paused: true, repeat: -1, repeatDelay: 0.9 + Math.random() * 0.9, delay: Math.random() * 0.5 })
+          .set(rect, { x: 0, y: 0, opacity: 1, rotation: Math.random() * 90 })
+          .to(rect, { x: dx * 0.6, y: upY, rotation: "+=140", duration: up, ease: "sine.out" })
+          .to(rect, { x: dx, y: 96 - 54 - sz, rotation: "+=160", duration: 0.65 + Math.random() * 0.35, ease: "power1.in" })
+          .to(rect, { opacity: 0, duration: 0.2 }, "-=0.15");
+        tls.push(tl);
+      }
+      return tls;
+    }
+
+    /* boss topples once, confetti fires, penguin dances forever */
+    function winScene(s) {
+      const r = rig(s);
+      r.pLegs.forEach((l, i) => gsap.set(l, { svgOrigin: `${P_LEG_X[i]} ${GROUND}` }));
+      const confetti = spawnConfetti(s);
+
+      const dance = gsap.timeline({ repeat: -1, repeatDelay: 0.4, paused: true });
+      const BEAT = 0.32;
+      for (let bar = 0; bar < 4; bar++) {
+        const dir = bar % 2 === 0 ? 1 : -1;
+        dance
+          .to(r.pBody, { rotation: 6 * dir, x: 3 * dir, y: -4, svgOrigin: P_PIVOT, duration: BEAT, ease: "power2.out" })
+          .to(r.pEyes, { x: 2.5 * dir, duration: BEAT, ease: "power2.out" }, "<")
+          .to(dir > 0 ? r.pLegs[0] : r.pLegs[1], { scaleY: 0.55, duration: BEAT * 0.5, ease: "power2.out" }, "<")
+          .to(dir > 0 ? r.pLegs[0] : r.pLegs[1], { scaleY: 1, duration: BEAT * 0.5, ease: "power2.in" }, `<+=${BEAT * 0.5}`)
+          .to(dir > 0 ? r.pRh : r.pLh, { y: -13, rotation: 14 * dir, duration: BEAT * 0.6, ease: "power2.out" }, "<")
+          .to(dir > 0 ? r.pRh : r.pLh, { y: 0, rotation: 0, duration: BEAT * 0.4, ease: "power2.in" }, `<+=${BEAT * 0.6}`)
+          .to(r.pBody, { y: 0, duration: BEAT * 0.5, ease: "power2.in" }, "<");
+      }
+      dance.call(() => gsap.set([r.pBody, r.pEyes, r.pLh, r.pRh], { x: 0, y: 0, rotation: 0 }));
+
+      const master = gsap.timeline()
+        // boss wobbles…
+        .to(r.bChar, { x: "+=4", duration: 0.07, yoyo: true, repeat: 7, ease: "none" })
+        .to(r.bBrows, { y: 4, duration: 0.2, ease: "power2.in" }, "<")
+        // …and topples toward the penguin (gravity: power3.in)
+        .to(r.bChar, { rotation: -82, svgOrigin: "160 96", duration: 0.55, ease: "power3.in", delay: 0.15 })
+        .to(r.bChar, { rotation: -78, duration: 0.1, ease: "power2.out" })   // bounce
+        .to(r.bChar, { rotation: -82, duration: 0.12, ease: "power2.in" })
+        .to(r.bChar, { opacity: 0.55, duration: 0.5, ease: "sine.out" })
+        // paper shoot + penguin victory jump, then dance
+        .addLabel("party", "-=0.45")
+        .call(() => confetti.forEach((t) => t.play(0)), null, "party")
+        .to(r.pBody, { y: 5, duration: 0.12, ease: "power3.in" }, "party")
+        .to(r.pChar, { y: -28, duration: 0.34, ease: "sine.out" }, "party+=0.12")
+        .to(r.pBody, { y: 0, duration: 0.1, ease: "power2.out" }, "party+=0.12")
+        .to([r.pLh, r.pRh], { y: -8, rotation: 0, duration: 0.3, ease: "sine.out" }, "party+=0.12")
+        .to(r.pChar, { y: 0, duration: 0.2, ease: "power3.in" }, "party+=0.5")
+        .to([r.pLh, r.pRh], { y: 0, duration: 0.18, ease: "power3.in" }, "party+=0.52")
+        .call(() => dance.play(), null, "+=0.2");
+
+      return [master, dance, ...confetti];
+    }
+
+    const SCENES = { idle: idleScene, attack: attackScene, hurt: hurtScene, recover: recoverScene, win: winScene };
+
+    /* ---- scene manager: scenes injected from the one BATTLE template ---- */
+    const stage = document.getElementById("stage");
+    Object.keys(SCENES).forEach((name) => {
+      const div = document.createElement("div");
+      div.className = "scene";
+      div.dataset.scene = name;
+      div.innerHTML = BATTLE(name);
+      stage.appendChild(div);
+    });
+
+    let active = { timelines: [] };
+    function activate(name) {
+      active.timelines.forEach((tl) => tl.kill());
+      active = { timelines: [] };
+      document.querySelectorAll(".scene").forEach((s) => {
+        const on = s.dataset.scene === name;
+        s.classList.toggle("active", on);
+        if (!on) return;
+        gsap.set([...s.querySelectorAll("[data-part]")], { clearProps: "all" });
+        // authored fills/opacity GSAP touched via attr need manual restore
+        const torso = q(s, "b-torso");
+        torso.setAttribute("fill", "#7C4DBE");
+        q(s, "b-left-hand").setAttribute("fill", "#7C4DBE");
+        q(s, "b-right-hand").setAttribute("fill", "#7C4DBE");
+        [...q(s, "b-heal").children].forEach((h) => h.setAttribute("opacity", "0"));
+        active.timelines = SCENES[name](s);
+      });
+      document.querySelectorAll("nav button").forEach((b) =>
+        b.classList.toggle("active", b.dataset.scene === name));
+    }
+    document.querySelectorAll("nav button").forEach((b) =>
+      b.addEventListener("click", () => activate(b.dataset.scene)));
+    activate("idle");
+  </script>
+</body>
+</html>

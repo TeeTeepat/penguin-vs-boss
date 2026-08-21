@@ -1,0 +1,551 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Penguin vs Boss - Multiplication</title>
+<style>
+  * { margin: 0; box-sizing: border-box; }
+  body {
+    background: #f5f0e8; color: #1a1a18;
+    font-family: ui-monospace, Menlo, Consolas, monospace;
+    min-height: 100vh; display: flex; flex-direction: column;
+    align-items: center; padding: 1.5rem 1rem 3rem; gap: 1rem;
+  }
+  h1 { font-size: 1.15rem; letter-spacing: .04em; }
+  h2 { font-size: .95rem; }
+  .screen { display: none; flex-direction: column; align-items: center; gap: 1rem; width: min(720px, 94vw); }
+  .screen.active { display: flex; }
+  button {
+    font: inherit; padding: .55rem 1rem;
+    border: 1.5px solid #1a1a18; border-radius: 10px;
+    background: #fffdf9; cursor: pointer;
+  }
+  button:hover { background: #1a1a18; color: #f5f0e8; }
+  button.big { font-size: 1.1rem; padding: .9rem 1.4rem; width: 100%; }
+  button.ghost { border-color: #b8ab94; color: #6b6357; background: transparent; }
+  .row { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; align-items: center; }
+  .list { display: flex; flex-direction: column; gap: .5rem; width: min(420px, 100%); }
+  .card {
+    border: 1.5px solid #1a1a18; border-radius: 12px; background: #fffdf9;
+    padding: .8rem 1rem; display: flex; align-items: center; gap: .6rem; justify-content: space-between;
+  }
+  .card small { color: #6b6357; }
+  input, select { font: inherit; padding: .5rem; border: 1.5px solid #1a1a18; border-radius: 8px; background: #fff; }
+  .modecard { text-align: left; }
+  .modecard b { display: block; font-size: 1.05rem; }
+  .modecard span { color: #6b6357; font-size: .8rem; }
+
+  /* battle */
+  #stage {
+    width: 100%; height: 340px; background: #fffdf9;
+    border: 1.5px solid #1a1a18; border-radius: 14px;
+    position: relative; overflow: hidden;
+  }
+  #stage::after { content: ""; position: absolute; left: 0; right: 0; bottom: 82px; border-bottom: 1.5px dashed #d8cfbe; }
+  #scene { position: absolute; inset: 0; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 82px; }
+  #scene svg { width: min(560px, 84vw); overflow: visible; shape-rendering: crispEdges; }
+  #hud { position: absolute; top: .6rem; left: .8rem; right: .8rem; display: flex; justify-content: space-between; align-items: center; }
+  #hearts { display: flex; gap: 4px; flex-wrap: wrap; }
+  .heart { width: 18px; height: 18px; }
+  #timerbar { position: absolute; left: 0; top: 0; height: 5px; background: #e5533c; width: 0%; display: none; }
+  #banner {
+    position: absolute; top: 42%; left: 0; right: 0; text-align: center;
+    font-size: 1.5rem; font-weight: 700; letter-spacing: .06em; display: none;
+  }
+  #question { font-size: 2rem; font-weight: 700; letter-spacing: .05em; }
+  #answer { width: 7ch; text-align: center; font-size: 1.6rem; }
+  #feedback { min-height: 1.4em; color: #6b6357; }
+  #feedback.good { color: #2f7a46; } #feedback.bad { color: #c0392b; }
+
+  /* multiplication table overlay */
+  #tableoverlay {
+    position: fixed; inset: 0; background: rgba(26,26,24,.55);
+    display: none; align-items: center; justify-content: center; padding: 1rem; z-index: 10;
+  }
+  #tableoverlay.open { display: flex; }
+  #tablebox { background: #fffdf9; border: 1.5px solid #1a1a18; border-radius: 14px; padding: 1rem; max-width: 96vw; overflow: auto; }
+  #tablebox table { border-collapse: collapse; font-size: .78rem; }
+  #tablebox td, #tablebox th { border: 1px solid #d8cfbe; padding: .28rem .45rem; text-align: center; min-width: 2.2em; }
+  #tablebox th { background: #efe8da; }
+</style>
+</head>
+<body>
+  <h1>Penguin vs Boss</h1>
+
+  <div class="screen active" id="screen-pick">
+    <h2>Who is playing?</h2>
+    <div class="list" id="studentlist"></div>
+    <p id="nostudents" style="color:#6b6357">No students yet. Ask your teacher to add you.</p>
+    <button class="ghost" data-go="teacher">Teacher</button>
+  </div>
+
+  <div class="screen" id="screen-teacher">
+    <h2>Teacher</h2>
+    <div class="row">
+      <input id="newname" placeholder="Student name" maxlength="24">
+      <button id="addstudent">Add</button>
+    </div>
+    <div class="list" id="teacherlist"></div>
+    <button class="ghost" data-go="pick">Back</button>
+  </div>
+
+  <div class="screen" id="screen-mode">
+    <h2 id="modetitle">Pick a Mode</h2>
+    <div class="list" id="modelist"></div>
+    <button class="ghost" data-go="pick">Back</button>
+  </div>
+
+  <div class="screen" id="screen-battle">
+    <div id="stage">
+      <div id="timerbar"></div>
+      <div id="hud">
+        <div id="hearts"></div>
+        <div id="levelinfo"></div>
+      </div>
+      <div id="banner"></div>
+      <div id="scene"></div>
+    </div>
+    <div id="question"></div>
+    <div class="row" id="answerrow">
+      <input id="answer" type="number" inputmode="numeric" autocomplete="off">
+      <button id="submit" class="big" style="width:auto">Attack</button>
+    </div>
+    <div id="feedback"></div>
+    <div class="row" id="winrow" style="display:none">
+      <button id="again" class="big" style="width:auto">Fight next Boss</button>
+      <button class="ghost" data-go="mode">Change Mode</button>
+      <button class="ghost" data-go="pick">Home</button>
+    </div>
+    <div class="row">
+      <button id="opentable" class="ghost">Open table</button>
+      <button class="ghost" data-go="mode">Quit round</button>
+    </div>
+  </div>
+
+  <div id="tableoverlay">
+    <div id="tablebox">
+      <div class="row" style="justify-content:space-between; margin-bottom:.5rem">
+        <b>Multiplication table</b>
+        <button id="closetable" class="ghost">Close</button>
+      </div>
+      <div id="tablegrid"></div>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script src="logic.js"></script>
+  <script>
+    const { MODES, MAX_LEVEL, heartsForLevel, factKey, factPool, pickFact, updateWeak, applyAnswer } = window.GameLogic;
+
+    /* ---- store ---- */
+    /* ponytail: localStorage for now; ADR-0001 targets Supabase for cross-device
+       progress - replace load/save with supabase reads/writes when keys exist. */
+    const store = {
+      load: () => JSON.parse(localStorage.getItem("multiply.v1") || '{"students":[]}'),
+      save: (db) => localStorage.setItem("multiply.v1", JSON.stringify(db)),
+    };
+    let db = store.load();
+    const persist = () => store.save(db);
+
+    /* ---- navigation ---- */
+    const $ = (s) => document.querySelector(s);
+    function go(name) {
+      document.querySelectorAll(".screen").forEach((s) => s.classList.toggle("active", s.id === "screen-" + name));
+      if (name === "pick") renderPick();
+      if (name === "teacher") renderTeacher();
+      if (name === "mode") renderModes();
+      if (name !== "battle") stopRound();
+    }
+    document.querySelectorAll("[data-go]").forEach((b) => b.addEventListener("click", () => go(b.dataset.go)));
+
+    /* ---- pick + teacher ---- */
+    function renderPick() {
+      const box = $("#studentlist"); box.innerHTML = "";
+      $("#nostudents").style.display = db.students.length ? "none" : "block";
+      db.students.forEach((st) => {
+        const b = document.createElement("button");
+        b.className = "big"; b.textContent = st.name;
+        b.addEventListener("click", () => { current = st; go("mode"); });
+        box.appendChild(b);
+      });
+    }
+    function renderTeacher() {
+      const box = $("#teacherlist"); box.innerHTML = "";
+      db.students.forEach((st) => {
+        const card = document.createElement("div"); card.className = "card";
+        const weakList = Object.keys(st.weak).join(", ") || "none";
+        const info = document.createElement("div");
+        info.innerHTML = `<b>${st.name}</b><br><small>weak facts: ${weakList}</small>`;
+        const controls = document.createElement("div"); controls.className = "row";
+        const mk = (val) => {
+          const sel = document.createElement("select");
+          for (let n = 2; n <= 12; n++) sel.append(new Option(n, n));
+          sel.value = val; return sel;
+        };
+        const lo = mk(st.min), hi = mk(st.max);
+        const apply = () => {
+          st.min = Math.min(+lo.value, +hi.value);
+          st.max = Math.max(+lo.value, +hi.value);
+          lo.value = st.min; hi.value = st.max; persist();
+        };
+        lo.addEventListener("change", apply); hi.addEventListener("change", apply);
+        const del = document.createElement("button"); del.className = "ghost"; del.textContent = "remove";
+        del.addEventListener("click", () => {
+          if (del.textContent === "remove") { del.textContent = "sure?"; setTimeout(() => (del.textContent = "remove"), 2000); return; }
+          db.students = db.students.filter((s) => s !== st); persist(); renderTeacher();
+        });
+        controls.append("tables", lo, "to", hi, del);
+        card.append(info, controls);
+        box.appendChild(card);
+      });
+    }
+    $("#addstudent").addEventListener("click", () => {
+      const name = $("#newname").value.trim();
+      if (!name) return;
+      db.students.push({ id: Date.now(), name, min: 2, max: 12, levels: {}, weak: {} });
+      $("#newname").value = ""; persist(); renderTeacher();
+    });
+
+    /* ---- mode select ---- */
+    let current = null;
+    const MODE_HINTS = {
+      peaceful: "Table allowed. Wrong answers do not heal the Boss.",
+      easy: "Table allowed. A wrong answer heals the Boss to full.",
+      normal: "No table. Wrong answers do not heal the Boss.",
+      hard: "No table. Boss heals on wrong answers. 10 seconds per question.",
+    };
+    function renderModes() {
+      $("#modetitle").textContent = current ? `${current.name}, pick a Mode` : "";
+      const box = $("#modelist"); box.innerHTML = "";
+      Object.entries(MODES).forEach(([key, m]) => {
+        const lvl = (current.levels[key] || 1);
+        const b = document.createElement("button");
+        b.className = "big modecard";
+        b.innerHTML = `<b>${m.label} - Level ${lvl}</b><span>${MODE_HINTS[key]} Boss HP: ${heartsForLevel(lvl)}</span>`;
+        b.addEventListener("click", () => startRound(key));
+        box.appendChild(b);
+      });
+    }
+
+    /* ---- battle rig (from mascots/index.html) ---- */
+    const BATTLE = `
+    <svg viewBox="0 0 240 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <defs><clipPath id="ground-g"><rect x="-40" y="-80" width="320" height="176" /></clipPath></defs>
+      <g data-part="p-char">
+        <g clip-path="url(#ground-g)">
+          <rect data-part="p-leg1" x="28" y="86" width="8" height="10" fill="#F2A03D" />
+          <rect data-part="p-leg2" x="44" y="86" width="8" height="10" fill="#F2A03D" />
+        </g>
+        <g data-part="p-body">
+          <rect data-part="p-torso" x="20" y="44" width="40" height="46" fill="#16161E" />
+          <rect x="29" y="64" width="22" height="26" fill="#F5F0E8" />
+          <rect data-part="p-left-hand" x="12" y="60" width="8" height="20" fill="#16161E" />
+          <rect data-part="p-right-hand" x="60" y="60" width="8" height="20" fill="#16161E" />
+          <rect x="26" y="49" width="10" height="10" fill="#FFFFFF" />
+          <rect x="44" y="49" width="10" height="10" fill="#FFFFFF" />
+          <g data-part="p-eyes">
+            <rect data-part="p-eye1" x="29" y="52" width="5" height="5" fill="#16161E" />
+            <rect data-part="p-eye2" x="47" y="52" width="5" height="5" fill="#16161E" />
+          </g>
+          <rect data-part="p-beak" x="35" y="60" width="10" height="6" fill="#F2A03D" />
+        </g>
+      </g>
+      <g data-part="b-char">
+        <g clip-path="url(#ground-g)">
+          <rect data-part="b-leg1" x="160" y="78" width="14" height="18" fill="#3A2455" />
+          <rect data-part="b-leg2" x="196" y="78" width="14" height="18" fill="#3A2455" />
+        </g>
+        <g data-part="b-body">
+          <rect x="150" y="0" width="12" height="20" fill="#3A2455" />
+          <rect x="208" y="0" width="12" height="20" fill="#3A2455" />
+          <rect data-part="b-torso" x="150" y="12" width="70" height="70" fill="#7C4DBE" />
+          <rect data-part="b-left-hand" x="138" y="38" width="12" height="26" fill="#7C4DBE" />
+          <rect data-part="b-right-hand" x="220" y="38" width="12" height="26" fill="#7C4DBE" />
+          <g data-part="b-brows">
+            <rect x="160" y="22" width="16" height="6" fill="#3A2455" />
+            <rect x="194" y="22" width="16" height="6" fill="#3A2455" />
+          </g>
+          <rect x="161" y="30" width="14" height="10" fill="#FFFFFF" />
+          <rect x="195" y="30" width="14" height="10" fill="#FFFFFF" />
+          <g data-part="b-eyes">
+            <rect data-part="b-eye1" x="163" y="32" width="7" height="6" fill="#16161E" />
+            <rect data-part="b-eye2" x="197" y="32" width="7" height="6" fill="#16161E" />
+          </g>
+          <g data-part="b-mouth">
+            <rect x="174" y="56" width="22" height="10" fill="#3A2455" />
+            <rect x="177" y="56" width="5" height="4" fill="#FFFFFF" />
+            <rect x="188" y="56" width="5" height="4" fill="#FFFFFF" />
+          </g>
+        </g>
+        <g data-part="b-heal">
+          <rect x="156" y="74" width="5" height="5" fill="#5DBB74" opacity="0" />
+          <rect x="176" y="70" width="5" height="5" fill="#5DBB74" opacity="0" />
+          <rect x="198" y="73" width="5" height="5" fill="#5DBB74" opacity="0" />
+          <rect x="214" y="68" width="5" height="5" fill="#5DBB74" opacity="0" />
+        </g>
+      </g>
+      <g data-part="confetti"></g>
+    </svg>`;
+
+    const P_PIVOT = "40 90", B_PIVOT = "185 82", P_LEG_X = [32, 48], GROUND = 96;
+    $("#scene").innerHTML = BATTLE;
+    const sceneEl = $("#scene");
+    const q = (n) => sceneEl.querySelector(`[data-part="${n}"]`);
+    const r = {
+      pChar: q("p-char"), pBody: q("p-body"), pEyes: q("p-eyes"),
+      pEyeRects: [q("p-eye1"), q("p-eye2")], pLegs: [q("p-leg1"), q("p-leg2")],
+      pLh: q("p-left-hand"), pRh: q("p-right-hand"),
+      bChar: q("b-char"), bBody: q("b-body"), bEyes: q("b-eyes"), bTorso: q("b-torso"),
+      bLh: q("b-left-hand"), bRh: q("b-right-hand"),
+      bBrows: q("b-brows"), bMouth: q("b-mouth"), bHeal: [...q("b-heal").children],
+    };
+
+    let idles = [];
+    function startIdle() {
+      stopIdle();
+      idles.push(
+        gsap.timeline({ repeat: -1, yoyo: true })
+          .to(r.pBody, { scaleY: 1.03, svgOrigin: P_PIVOT, duration: 1.4, ease: "sine.inOut" })
+          .to([r.pLh, r.pRh], { y: -1.2, duration: 1.4, ease: "sine.inOut" }, "<"),
+        gsap.timeline({ repeat: -1, repeatDelay: 2.4 })
+          .to(r.pEyeRects, { scaleY: 0.15, duration: 0.07, transformOrigin: "center" })
+          .to(r.pEyeRects, { scaleY: 1, duration: 0.09 }),
+        gsap.timeline({ repeat: -1, yoyo: true })
+          .to(r.bBody, { y: -3, scaleY: 1.02, svgOrigin: B_PIVOT, duration: 1.9, ease: "sine.inOut" })
+          .to([r.bLh, r.bRh], { y: -4, duration: 1.9, ease: "sine.inOut" }, "<")
+      );
+    }
+    function stopIdle() { idles.forEach((t) => t.kill()); idles = []; }
+    function resetRig() {
+      gsap.set(sceneEl.querySelectorAll("[data-part]"), { clearProps: "all" });
+      [r.bTorso, r.bLh, r.bRh].forEach((el) => el.setAttribute("fill", "#7C4DBE"));
+      r.bHeal.forEach((h) => h.setAttribute("opacity", "0"));
+      q("confetti").innerHTML = "";
+      gsap.set(r.bChar, { opacity: 1 });
+    }
+    function oneShot(build) {
+      return new Promise((resolve) => {
+        stopIdle();
+        const tl = gsap.timeline({ onComplete: () => { resetRig(); startIdle(); resolve(); } });
+        build(tl);
+      });
+    }
+    const playAttack = () => oneShot((tl) => {
+      gsap.set(r.pRh, { svgOrigin: "60 60" });
+      tl.to(r.pBody, { rotation: -7, x: -5, svgOrigin: P_PIVOT, duration: 0.25, ease: "power2.out" })
+        .to(r.pRh, { y: -12, rotation: 28, duration: 0.25 }, "<")
+        .addLabel("go")
+        .to(r.pChar, { x: 64, duration: 0.2, ease: "power3.in" }, "go")
+        .addLabel("hit")
+        .to(r.pRh, { rotation: -34, duration: 0.1, ease: "power4.in" }, "hit")
+        .to(r.bChar, { x: 10, duration: 0.12, ease: "power3.out" }, "hit")
+        .to(r.bChar, { opacity: 0.25, duration: 0.06, yoyo: true, repeat: 3 }, "hit")
+        .to(r.pChar, { x: 0, duration: 0.3, ease: "power2.inOut", delay: 0.2 })
+        .to(r.bChar, { x: 0, duration: 0.3 }, "<");
+    });
+    const playHurt = () => oneShot((tl) => {
+      gsap.set(r.bLh, { svgOrigin: "150 38" });
+      tl.to(r.bBody, { rotation: 6, x: 6, y: -4, svgOrigin: B_PIVOT, duration: 0.3, ease: "power2.out" })
+        .to(r.bLh, { y: -16, rotation: -30, duration: 0.3 }, "<")
+        .addLabel("go")
+        .to(r.bChar, { x: -64, duration: 0.2, ease: "power3.in" }, "go")
+        .addLabel("hit")
+        .to(r.bLh, { rotation: 26, duration: 0.1, ease: "power4.in" }, "hit")
+        .to(r.pChar, { x: -12, duration: 0.14, ease: "power3.out" }, "hit")
+        .to(r.pBody, { rotation: -9, svgOrigin: P_PIVOT, duration: 0.14 }, "hit")
+        .to(r.bChar, { x: 0, duration: 0.35, ease: "power2.inOut", delay: 0.2 })
+        .to(r.pChar, { x: 0, duration: 0.3 }, "<")
+        .to(r.pBody, { rotation: 0, duration: 0.3 }, "<");
+    });
+    const playRecover = () => oneShot((tl) => {
+      const fills = [r.bTorso, r.bLh, r.bRh];
+      tl.to(r.bBody, { y: 4, scaleY: 0.94, svgOrigin: B_PIVOT, duration: 0.25, ease: "power2.in" })
+        .addLabel("burst")
+        .to(r.bBody, { y: -6, scaleY: 1.12, duration: 0.2, ease: "power3.out" }, "burst")
+        .to([r.bLh, r.bRh], { y: -14, duration: 0.2 }, "burst")
+        .to(fills, { attr: { fill: "#A585DC" }, duration: 0.18, yoyo: true, repeat: 3 }, "burst")
+        .to(r.bHeal, { y: -30, opacity: 1, duration: 0.5, stagger: 0.09, ease: "sine.out" }, "burst")
+        .to(r.bHeal, { opacity: 0, duration: 0.2, stagger: 0.09 }, "burst+=0.4")
+        .to(r.bBody, { y: 0, scaleY: 1, duration: 0.3, ease: "power2.inOut", delay: 0.3 })
+        .to([r.bLh, r.bRh], { y: 0, duration: 0.3 }, "<");
+    });
+    function playWin() {
+      stopIdle();
+      const group = q("confetti"); group.innerHTML = "";
+      const COLORS = ["#F2A03D", "#E5533C", "#5DBB74", "#3B7BD6", "#7C4DBE"];
+      const NS = "http://www.w3.org/2000/svg";
+      const bursts = [];
+      for (let i = 0; i < 26; i++) {
+        const rect = document.createElementNS(NS, "rect");
+        const sz = 3 + Math.random() * 3;
+        rect.setAttribute("x", 42); rect.setAttribute("y", 54);
+        rect.setAttribute("width", sz); rect.setAttribute("height", sz);
+        rect.setAttribute("fill", COLORS[i % COLORS.length]);
+        rect.setAttribute("opacity", "0");
+        group.appendChild(rect);
+        const dx = (Math.random() * 2 - 0.55) * 95, upY = -(28 + Math.random() * 48);
+        bursts.push(
+          gsap.timeline({ paused: true, repeat: -1, repeatDelay: 0.9 + Math.random() * 0.9, delay: Math.random() * 0.5 })
+            .set(rect, { x: 0, y: 0, opacity: 1, rotation: Math.random() * 90 })
+            .to(rect, { x: dx * 0.6, y: upY, rotation: "+=140", duration: 0.55, ease: "sine.out" })
+            .to(rect, { x: dx, y: GROUND - 54 - sz, rotation: "+=160", duration: 0.8, ease: "power1.in" })
+            .to(rect, { opacity: 0, duration: 0.2 }, "-=0.15")
+        );
+      }
+      r.pLegs.forEach((l, i) => gsap.set(l, { svgOrigin: `${P_LEG_X[i]} ${GROUND}` }));
+      const dance = gsap.timeline({ repeat: -1, repeatDelay: 0.4, paused: true });
+      const BEAT = 0.32;
+      for (let bar = 0; bar < 4; bar++) {
+        const dir = bar % 2 === 0 ? 1 : -1;
+        dance
+          .to(r.pBody, { rotation: 6 * dir, x: 3 * dir, y: -4, svgOrigin: P_PIVOT, duration: BEAT, ease: "power2.out" })
+          .to(dir > 0 ? r.pLegs[0] : r.pLegs[1], { scaleY: 0.55, duration: BEAT * 0.5 }, "<")
+          .to(dir > 0 ? r.pLegs[0] : r.pLegs[1], { scaleY: 1, duration: BEAT * 0.5 }, `<+=${BEAT * 0.5}`)
+          .to(dir > 0 ? r.pRh : r.pLh, { y: -13, rotation: 14 * dir, duration: BEAT * 0.6 }, "<")
+          .to(dir > 0 ? r.pRh : r.pLh, { y: 0, rotation: 0, duration: BEAT * 0.4 }, `<+=${BEAT * 0.6}`)
+          .to(r.pBody, { y: 0, duration: BEAT * 0.5 }, "<");
+      }
+      const master = gsap.timeline()
+        .to(r.bChar, { x: "+=4", duration: 0.07, yoyo: true, repeat: 7 })
+        .to(r.bChar, { rotation: -82, svgOrigin: "160 96", duration: 0.55, ease: "power3.in", delay: 0.15 })
+        .to(r.bChar, { rotation: -78, duration: 0.1 })
+        .to(r.bChar, { rotation: -82, duration: 0.12 })
+        .to(r.bChar, { opacity: 0.55, duration: 0.5 })
+        .addLabel("party", "-=0.45")
+        .call(() => bursts.forEach((t) => t.play(0)), null, "party")
+        .to(r.pChar, { y: -28, duration: 0.34, ease: "sine.out" }, "party+=0.12")
+        .to(r.pChar, { y: 0, duration: 0.2, ease: "power3.in" }, "party+=0.5")
+        .call(() => dance.play(), null, "+=0.2");
+      winTimelines = [master, dance, ...bursts];
+    }
+    let winTimelines = [];
+
+    /* ---- round ---- */
+    let round = null; /* { modeKey, mode, maxHearts, hearts, fact, lastKey, busy } */
+    let timerId = null, deadline = 0;
+
+    function startRound(modeKey) {
+      winTimelines.forEach((t) => t.kill()); winTimelines = [];
+      resetRig(); startIdle();
+      const mode = MODES[modeKey];
+      const level = current.levels[modeKey] || 1;
+      round = { modeKey, mode, level, maxHearts: heartsForLevel(level), hearts: heartsForLevel(level), fact: null, lastKey: null, busy: false };
+      $("#winrow").style.display = "none";
+      $("#answerrow").style.display = "flex";
+      $("#banner").style.display = "none";
+      $("#opentable").style.display = mode.table ? "inline-block" : "none";
+      $("#timerbar").style.display = mode.timer ? "block" : "none";
+      go("battle");
+      nextFact();
+    }
+    function stopRound() { clearInterval(timerId); timerId = null; round = null; winTimelines.forEach((t) => t.kill()); winTimelines = []; }
+
+    function renderHearts() {
+      const box = $("#hearts"); box.innerHTML = "";
+      for (let i = 0; i < round.maxHearts; i++) {
+        const filled = i < round.hearts;
+        box.insertAdjacentHTML("beforeend",
+          `<svg class="heart" viewBox="0 0 10 10"><g fill="${filled ? "#E5533C" : "#e0d7c6"}">
+            <rect x="1" y="2" width="3" height="3"/><rect x="6" y="2" width="3" height="3"/>
+            <rect x="2" y="4" width="6" height="2"/><rect x="3" y="6" width="4" height="1"/>
+            <rect x="4" y="7" width="2" height="1"/></g></svg>`);
+      }
+      $("#levelinfo").textContent = `${round.mode.label} Lv ${round.level}`;
+    }
+
+    function nextFact() {
+      const pool = factPool(current.min, current.max);
+      round.fact = pickFact(pool, current.weak, Math.random, round.lastKey);
+      round.lastKey = factKey(round.fact);
+      $("#question").textContent = `${round.fact.a} x ${round.fact.b} = ?`;
+      $("#answer").value = "";
+      $("#answer").focus();
+      $("#feedback").textContent = ""; $("#feedback").className = "";
+      renderHearts();
+      startTimer();
+    }
+
+    function startTimer() {
+      clearInterval(timerId);
+      if (!round.mode.timer) return;
+      deadline = Date.now() + round.mode.timer * 1000;
+      timerId = setInterval(() => {
+        const left = deadline - Date.now();
+        $("#timerbar").style.width = `${Math.max(0, (left / (round.mode.timer * 1000)) * 100)}%`;
+        if (left <= 0) { clearInterval(timerId); answer(null); }
+      }, 100);
+    }
+
+    async function answer(value) {
+      if (!round || round.busy) return;
+      round.busy = true;
+      clearInterval(timerId);
+      const f = round.fact, key = factKey(f), product = f.a * f.b;
+      const correct = value === product;
+      current.weak = updateWeak(current.weak, key, correct);
+      persist();
+      const fb = $("#feedback");
+      if (correct) {
+        fb.textContent = `Hit! ${f.a} x ${f.b} = ${product}`;
+        fb.className = "good";
+        round.hearts = applyAnswer(round.hearts, round.maxHearts, true, round.mode.reset);
+        renderHearts();
+        await playAttack();
+        if (round.hearts === 0) return winRound();
+      } else {
+        fb.textContent = value === null ? `Too slow! ${f.a} x ${f.b} = ${product}` : `Ouch! ${f.a} x ${f.b} = ${product}`;
+        fb.className = "bad";
+        await playHurt();
+        if (round.mode.reset) {
+          round.hearts = round.maxHearts;
+          renderHearts();
+          await playRecover();
+        }
+      }
+      round.busy = false;
+      nextFact();
+    }
+
+    function winRound() {
+      const leveledUp = round.level < MAX_LEVEL;
+      current.levels[round.modeKey] = Math.min(round.level + 1, MAX_LEVEL);
+      persist();
+      clearInterval(timerId);
+      $("#question").textContent = "";
+      $("#answerrow").style.display = "none";
+      $("#winrow").style.display = "flex";
+      const banner = $("#banner");
+      banner.textContent = leveledUp ? `Boss defeated! Level up: ${round.level + 1}` : "Boss defeated!";
+      banner.style.display = "block";
+      playWin();
+    }
+
+    $("#submit").addEventListener("click", () => submitAnswer());
+    $("#answer").addEventListener("keydown", (e) => { if (e.key === "Enter") submitAnswer(); });
+    function submitAnswer() {
+      const v = $("#answer").value.trim();
+      if (v === "") return;
+      answer(Number(v));
+    }
+    $("#again").addEventListener("click", () => startRound(round.modeKey));
+
+    /* ---- table overlay ---- */
+    (function buildTable() {
+      let html = "<table><tr><th></th>";
+      for (let b = 2; b <= 12; b++) html += `<th>${b}</th>`;
+      html += "</tr>";
+      for (let a = 2; a <= 12; a++) {
+        html += `<tr><th>${a}</th>`;
+        for (let b = 2; b <= 12; b++) html += `<td>${a * b}</td>`;
+        html += "</tr>";
+      }
+      $("#tablegrid").innerHTML = html + "</table>";
+    })();
+    $("#opentable").addEventListener("click", () => $("#tableoverlay").classList.add("open"));
+    $("#closetable").addEventListener("click", () => $("#tableoverlay").classList.remove("open"));
+
+    renderPick();
+  </script>
+</body>
+</html>
